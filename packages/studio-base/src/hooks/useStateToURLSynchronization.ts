@@ -22,8 +22,8 @@ const selectUrlState = (ctx: MessagePipelineContext) => ctx.playerState.urlState
 const selectSelectedEventId = (store: EventsStore) => store.selectedEventId;
 
 function updateUrl(newState: AppURLState) {
-  const newStateUrl = updateAppURLState(new URL(window.location.href), newState);
-  window.history.replaceState(undefined, "", newStateUrl.href);
+  const newStateUrl = updateAppURLState(new URL(window.parent.location.href), newState);
+  window.parent.history.replaceState(undefined, "", newStateUrl.href);
 }
 
 /**
