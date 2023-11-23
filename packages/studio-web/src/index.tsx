@@ -36,7 +36,7 @@ export async function main(getParams: () => Promise<MainParams> = async () => ({
     console.error(...args);
   };
 
-  const rootEl = document.getElementById("root");
+  const rootEl = document.getElementById("studio-root");
   if (!rootEl) {
     throw new Error("missing #root element");
   }

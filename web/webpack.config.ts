@@ -8,8 +8,10 @@ import { ConfigParams, devServerConfig, mainConfig } from "@foxglove/studio-web/
 
 import packageJson from "../package.json";
 
+const  FRONTEND_ASSETS_DIR = process.env.FRONTEND_ASSETS_DIR!;
+
 const params: ConfigParams = {
-  outputPath: path.resolve(__dirname, ".webpack"),
+  outputPath: path.resolve(FRONTEND_ASSETS_DIR, "foxglove"),
   contextPath: path.resolve(__dirname, "src"),
   entrypoint: "./entrypoint.tsx",
   prodSourceMap: "source-map",
