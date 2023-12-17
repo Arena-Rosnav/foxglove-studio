@@ -21,6 +21,8 @@ import {
 import { TopicAliasFunctions } from "@foxglove/studio-base/players/TopicAliasingPlayer/aliasing";
 import { ExtensionLoader } from "@foxglove/studio-base/services/ExtensionLoader";
 import { ExtensionInfo, ExtensionNamespace } from "@foxglove/studio-base/types/Extensions";
+import arenaPedsimAgents from "../extensions/arena/pedsimAgents";
+import { SceneUpdate } from "@foxglove/schemas";
 
 const log = Logger.getLogger(__filename);
 
@@ -57,8 +59,8 @@ function activateExtension(
     process.env.NODE_ENV === "production"
       ? "production"
       : process.env.NODE_ENV === "test"
-      ? "test"
-      : "development";
+        ? "test"
+        : "development";
 
   const ctx: ExtensionContext = {
     mode: extensionMode,
@@ -169,6 +171,13 @@ function createExtensionRegistryStore(
       log.info(
         `Loaded ${extensionList.length} extensions in ${(performance.now() - start).toFixed(1)}ms`,
       );
+
+      const pedSimAgentConverter: RegisterMessageConverterArgs<SceneUpdate> =  arenaPedsimAgents();
+
+      allContributionPoints.messageConverters.push(pedSimAgentConverter as MessageConverter);
+
+      // console.log("Message converters", allContributionPoints.messageConverters);
+
       set({
         installedExtensions: extensionList,
         installedPanels: allContributionPoints.panels,
