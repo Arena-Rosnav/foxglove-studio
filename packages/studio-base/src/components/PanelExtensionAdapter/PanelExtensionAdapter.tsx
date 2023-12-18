@@ -15,6 +15,7 @@ import {
   ExtensionPanelRegistration,
   PanelExtensionContext,
   ParameterValue,
+  RegisterMessageConverterArgs,
   RenderState,
   SettingsTree,
   Subscription,
@@ -39,6 +40,7 @@ import {
   useSetHoverValue,
 } from "@foxglove/studio-base/context/TimelineInteractionStateContext";
 import useGlobalVariables from "@foxglove/studio-base/hooks/useGlobalVariables";
+import arenaPedsimAgents from "@foxglove/studio-base/extensions/arena/pedsimAgentConverter";
 import {
   AdvertiseOptions,
   PlayerCapabilities,
@@ -55,6 +57,7 @@ import { PanelConfigVersionError } from "./PanelConfigVersionError";
 import { initRenderStateBuilder } from "./renderState";
 import { BuiltinPanelExtensionContext } from "./types";
 import { useSharedPanelState } from "./useSharedPanelState";
+import { SceneUpdate } from "@foxglove/schemas";
 
 const log = Logger.getLogger(__filename);
 
@@ -127,6 +130,7 @@ function PanelExtensionAdapter(
   const [error, setError] = useState<Error | undefined>();
   const [watchedFields, setWatchedFields] = useState(new Set<keyof RenderState>());
   const messageConverters = useExtensionCatalog(selectInstalledMessageConverters);
+
 
   const [localSubscriptions, setLocalSubscriptions] = useState<Subscription[]>([]);
 
@@ -223,6 +227,15 @@ function PanelExtensionAdapter(
     if (!renderFn || !isPanelInitializedRef.current) {
       return;
     }
+    const pedSimAgentConverter: RegisterMessageConverterArgs<SceneUpdate> =  arenaPedsimAgents();
+
+    let customizedMessageConverters = [];
+    if (Array.isArray(messageEvents) && messageEvents.length > 0) {
+      for (const messageEvent of messageEvents) {
+        customizedMessageConverters.push(messageEvent);
+      }
+    }
+    customizedMessageConverters.push(pedSimAgentConverter);
 
     const renderState = buildRenderState({
       appSettings,
@@ -230,7 +243,7 @@ function PanelExtensionAdapter(
       currentFrame: messageEvents,
       globalVariables,
       hoverValue,
-      messageConverters,
+      messageConverters: customizedMessageConverters,
       playerState,
       sharedPanelState,
       sortedTopics,
