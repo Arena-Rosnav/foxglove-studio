@@ -41,6 +41,7 @@ import {
 } from "@foxglove/studio-base/context/TimelineInteractionStateContext";
 import useGlobalVariables from "@foxglove/studio-base/hooks/useGlobalVariables";
 import arenaPedsimAgents from "@foxglove/studio-base/extensions/arena/pedsimAgentConverter";
+import arenaWalls from "@foxglove/studio-base/extensions/arena/wallsConverter";
 import {
   AdvertiseOptions,
   PlayerCapabilities,
@@ -228,6 +229,7 @@ function PanelExtensionAdapter(
       return;
     }
     const pedSimAgentConverter: RegisterMessageConverterArgs<SceneUpdate> =  arenaPedsimAgents();
+    const wallsConverter : RegisterMessageConverterArgs<SceneUpdate> = arenaWalls();
 
     let customizedMessageConverters = [];
     if (Array.isArray(messageEvents) && messageEvents.length > 0) {
@@ -236,6 +238,7 @@ function PanelExtensionAdapter(
       }
     }
     customizedMessageConverters.push(pedSimAgentConverter);
+    customizedMessageConverters.push(wallsConverter);
 
     const renderState = buildRenderState({
       appSettings,
