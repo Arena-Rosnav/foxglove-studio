@@ -1,4 +1,4 @@
-import { ModelPrimitive, Pose, SceneUpdate, Vector3 } from "@foxglove/schemas";
+import { ModelPrimitive, Pose, SceneEntity, SceneUpdate, Vector3 } from "@foxglove/schemas";
 import { Time } from "@foxglove/schemas/schemas/typescript/Time";
 import {
     RegisterMessageConverterArgs,
@@ -25,9 +25,28 @@ type AgentState = {
     header: Header;
     pose: Pose;
     twist: Twist;
+    direction: number;
+    social_state: string;
 };
 
-export default function arenaPedsimAgents(): RegisterMessageConverterArgs<SceneUpdate> {
+type ModelPrimitiveAnimated = {
+    animation: {
+        name: string;
+        loop: boolean;
+        speed: number;
+    };
+} & ModelPrimitive;
+
+type ArenaSceneEntity = {
+    models: ModelPrimitive[] | ModelPrimitiveAnimated[];
+} & SceneEntity;
+
+export type ArenaSceneUpdate = {
+    deletions: string[];
+    entities: ArenaSceneEntity[];
+} & SceneUpdate;
+
+export default function arenaPedsimAgents(): RegisterMessageConverterArgs<ArenaSceneUpdate> {
     return {
         fromSchemaName: "pedsim_msgs/AgentStates",
         toSchemaName: "foxglove.SceneUpdate",
@@ -47,7 +66,7 @@ export default function arenaPedsimAgents(): RegisterMessageConverterArgs<SceneU
                 const quaternion = agentState.pose.orientation;
                 const q = new Quaternion(quaternion.x, quaternion.y, quaternion.z, quaternion.w);
                 const euler = new Euler().setFromQuaternion(q);
-                euler.z += Math.PI / 2;
+                euler.z = agentState.direction + Math.PI / 2;
                 q.setFromEuler(euler);
                 agentState.pose.orientation = {
                     x: q.x,
@@ -55,14 +74,31 @@ export default function arenaPedsimAgents(): RegisterMessageConverterArgs<SceneU
                     z: q.z,
                     w: q.w,
                 };
-                const model: ModelPrimitive = {
+                // nathan:
+                // scale: { x: 0.013, y: 0.013, z: 0.013 },
+                // url: `${hostOrigin}/lib/foxglove-models/nathan-walking.glb`,
+                // name: "Take 001",
+                // euler.z = agentState.direction + Math.PI / 2;
+                
+                // soldier:
+                // scale: { x: 1, y: 1, z: 1 },
+                // url: `${hostOrigin}/lib/foxglove-models/soldier.glb`,
+                // name: "Walk",
+                // euler.z = agentState.direction - Math.PI / 2;
+
+                const model: ModelPrimitiveAnimated = {
                     pose: agentState.pose,
-                    scale: { x: 1, y: 1, z: 1 },
+                    scale: { x: 0.013, y: 0.013, z: 0.013 },
                     color: { r: 1, g: 0, b: 0, a: 1 },
-                    url: `${hostOrigin}/lib/foxglove-models/astronaut.glb`,
-                    media_type: "model/gltf-binary",
+                    url: `${hostOrigin}/lib/foxglove-models/nathan-walking.glb`,
+                    media_type: "model/gltf",
                     override_color: false,
                     data: new Uint8Array(),
+                    animation: {
+                        name: "Take 001",
+                        loop: true,
+                        speed: agentState.social_state.toLocaleLowerCase() === "running" ? 0.9 : 0.5,
+                    },
                 };
 
                 agents.push(model);

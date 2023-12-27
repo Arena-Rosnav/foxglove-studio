@@ -151,6 +151,9 @@ export class ModelCache {
     // THREE.js uses Y-up, while Studio follows the ROS
     // [REP-0103](https://www.ros.org/reps/rep-0103.html) convention of Z-up
     gltf.scene.rotateX(Math.PI / 2);
+    gltf.scene.userData = {
+      animationClips: gltf.animations,
+    }
 
     return gltf.scene;
   }

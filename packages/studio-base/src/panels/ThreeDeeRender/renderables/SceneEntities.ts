@@ -39,6 +39,14 @@ import { LayerSettingsEntity } from "../settings";
 import { topicIsConvertibleToSchema } from "../topicIsConvertibleToSchema";
 import { makePose } from "../transforms";
 
+type ModelPrimitiveAnimated = {
+  animation: {
+    name: string;
+    loop: boolean;
+    speed: number;
+  };
+} & ModelPrimitive;
+
 const SCENE_ENTITIES_DEFAULT_SETTINGS: LayerSettingsEntity = {
   showOutlines: true,
   visible: false,
@@ -300,9 +308,9 @@ function normalizeTextPrimitive(text: PartialMessage<TextPrimitive> | undefined)
 }
 
 function normalizeModelPrimitive(
-  model: PartialMessage<ModelPrimitive> | undefined,
-): ModelPrimitive {
-  return {
+  model: PartialMessage<ModelPrimitive> | PartialMessage<ModelPrimitiveAnimated> | undefined,
+): ModelPrimitive | ModelPrimitiveAnimated {
+  let normalizedModel: ModelPrimitive = {
     pose: normalizePose(model?.pose),
     scale: normalizeVector3(model?.scale),
     color: normalizeColorRGBA(model?.color),
@@ -311,4 +319,16 @@ function normalizeModelPrimitive(
     media_type: model?.media_type ?? "",
     data: normalizeByteArray(model?.data),
   };
+  if (model !== undefined && "animation" in model) {
+    return {
+      ...normalizedModel,
+      animation: {
+        name: model.animation?.name ?? "",
+        loop: model.animation?.loop ?? false,
+        speed: model.animation?.speed ?? 1,
+      },
+    };
+  }
+
+  return normalizedModel;
 }

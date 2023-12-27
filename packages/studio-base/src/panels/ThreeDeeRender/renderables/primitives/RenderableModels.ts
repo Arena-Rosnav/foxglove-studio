@@ -3,10 +3,11 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
 import * as THREE from "three";
+import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils';
 
 import { crc32 } from "@foxglove/crc";
 import { toNanoSec } from "@foxglove/rostime";
-import { ModelPrimitive, SceneEntity } from "@foxglove/schemas";
+import { ModelPrimitive, SceneEntity as FoxgloveSceneEntity } from "@foxglove/schemas";
 
 import { RenderablePrimitive } from "./RenderablePrimitive";
 import type { IRenderer } from "../../IRenderer";
@@ -30,6 +31,18 @@ type RenderableModel = {
   /** Reference to the original message for checking whether this renderable can be reused */
   primitive: ModelPrimitive;
 };
+
+type ModelPrimitiveAnimated = {
+  animation: {
+    name: string;
+    loop: boolean;
+    speed: number;
+  };
+} & ModelPrimitive;
+
+type SceneEntity = {
+  models: ModelPrimitive[] | ModelPrimitiveAnimated[];
+} & FoxgloveSceneEntity;
 
 function byteArraysEqual(a: Uint8Array, b: Uint8Array): boolean {
   if (a.length !== b.length) {
@@ -106,7 +119,7 @@ export class RenderableModels extends RenderablePrimitive {
    * Updates renderables to reflect a new list of primitives
    * @param models - list of ModelPrimitive objects to show in the next update
    */
-  #updateModels(models: ModelPrimitive[]) {
+  #updateModels(models: ModelPrimitive[] | ModelPrimitiveAnimated[]) {
     const originalUpdateCount = ++this.#updateCount;
 
     const prevRenderablesByUrl = this.#renderablesByUrl;
@@ -185,7 +198,7 @@ export class RenderableModels extends RenderablePrimitive {
             renderable = await this.#createRenderable(
               primitive,
               (model) => model.url,
-              (_url) => {},
+              (_url) => { },
             );
           } catch (err) {
             this.renderer.settings.errors.add(
@@ -317,12 +330,12 @@ export class RenderableModels extends RenderablePrimitive {
     return cachedModel;
   }
 
-  #updateModel(renderable: RenderableModel, primitive: ModelPrimitive) {
+  #updateModel(renderable: RenderableModel, primitive: ModelPrimitive | ModelPrimitiveAnimated) {
     const overrideColor = this.userData.settings.color
       ? stringToRgba(tempRgba, this.userData.settings.color)
       : primitive.override_color
-      ? primitive.color
-      : undefined;
+        ? primitive.color
+        : undefined;
     if (overrideColor) {
       if (!renderable.material) {
         renderable.material = new THREE.MeshStandardMaterial({
@@ -356,17 +369,52 @@ export class RenderableModels extends RenderablePrimitive {
       primitive.pose.orientation.z,
       primitive.pose.orientation.w,
     );
+
+    if ("animation" in primitive) {
+      this.#handleAnimationUpdate(renderable, primitive);
+    }
   }
 
   #disposeModel(renderable: RenderableModel) {
     renderable.material?.dispose();
     disposeMeshesRecursive(renderable.model);
     disposeMeshesRecursive(renderable.cachedModel);
+    if (renderable.model.userData.animationInterval) {
+      clearInterval(renderable.model.userData.animationInterval);
+      renderable.model.userData.animationInterval = undefined;
+      renderable.model.userData.animationStarted = false;
+      renderable.model.userData.mixer = undefined;
+      renderable.model.animations = [];
+    }
+  }
+
+  #handleAnimationUpdate(renderable: RenderableModel, primitive: ModelPrimitiveAnimated) {
+    if (renderable.model.userData.animationStarted === true) {
+      renderable.model.userData.mixer.timeScale = primitive.animation.speed;
+      return;
+    }
+
+    const animation = primitive.animation;
+    const mixer = new THREE.AnimationMixer(renderable.model);
+    const clip = THREE.AnimationClip.findByName(renderable.cachedModel.userData.animationClips, animation.name);
+    if (clip) {
+      const action = mixer.clipAction(clip);
+      action.setLoop(animation.loop ? THREE.LoopRepeat : THREE.LoopOnce, Infinity);
+      action.clampWhenFinished = true;
+      action.timeScale = animation.speed;
+      action.play();
+      renderable.model.userData.animationStarted = true;
+      renderable.model.animations.push(clip);
+      renderable.model.userData.mixer = mixer;
+      renderable.model.userData.animationInterval = setInterval(() => {
+        mixer.update(0.05);
+      }, 50);
+    }
   }
 }
 
 function cloneAndPrepareModel(cachedModel: LoadedModel) {
-  const model = cachedModel.clone(true);
+  const model = SkeletonUtils.clone(cachedModel) as LoadedModel;
   removeLights(model);
   return new THREE.Group().add(model);
 }

@@ -40,7 +40,7 @@ import {
   useSetHoverValue,
 } from "@foxglove/studio-base/context/TimelineInteractionStateContext";
 import useGlobalVariables from "@foxglove/studio-base/hooks/useGlobalVariables";
-import arenaPedsimAgents from "@foxglove/studio-base/extensions/arena/pedsimAgentConverter";
+import arenaPedsimAgents, { ArenaSceneUpdate } from "@foxglove/studio-base/extensions/arena/pedsimAgentConverter";
 import {
   AdvertiseOptions,
   PlayerCapabilities,
@@ -57,7 +57,6 @@ import { PanelConfigVersionError } from "./PanelConfigVersionError";
 import { initRenderStateBuilder } from "./renderState";
 import { BuiltinPanelExtensionContext } from "./types";
 import { useSharedPanelState } from "./useSharedPanelState";
-import { SceneUpdate } from "@foxglove/schemas";
 
 const log = Logger.getLogger(__filename);
 
@@ -227,7 +226,7 @@ function PanelExtensionAdapter(
     if (!renderFn || !isPanelInitializedRef.current) {
       return;
     }
-    const pedSimAgentConverter: RegisterMessageConverterArgs<SceneUpdate> =  arenaPedsimAgents();
+    const pedSimAgentConverter: RegisterMessageConverterArgs<ArenaSceneUpdate> =  arenaPedsimAgents();
 
     let customizedMessageConverters = [];
     if (Array.isArray(messageEvents) && messageEvents.length > 0) {
