@@ -13,10 +13,8 @@ import Logger from "@foxglove/log";
 import { Time, fromNanoSec, isLessThan, toNanoSec } from "@foxglove/rostime";
 import type { FrameTransform, FrameTransforms, SceneUpdate } from "@foxglove/schemas";
 import {
-  DraggedMessagePath,
   Immutable,
   MessageEvent,
-  MessagePathDropStatus,
   ParameterValue,
   SettingsIcon,
   SettingsTreeAction,
@@ -29,13 +27,17 @@ import { PanelContextMenuItem } from "@foxglove/studio-base/components/PanelCont
 import {
   Asset,
   BuiltinPanelExtensionContext,
+  DraggedMessagePath,
+  MessagePathDropStatus,
 } from "@foxglove/studio-base/components/PanelExtensionAdapter";
+import { HUDItemManager } from "@foxglove/studio-base/panels/ThreeDeeRender/HUDItemManager";
 import { LayerErrors } from "@foxglove/studio-base/panels/ThreeDeeRender/LayerErrors";
 import { ICameraHandler } from "@foxglove/studio-base/panels/ThreeDeeRender/renderables/ICameraHandler";
 import IAnalytics from "@foxglove/studio-base/services/IAnalytics";
 import { palette, fontMonospace } from "@foxglove/theme";
 import { LabelMaterial, LabelPool } from "@foxglove/three-text";
 
+import { HUDItem } from "./HUDItemManager";
 import {
   IRenderer,
   InstancedLineMaterial,
@@ -107,6 +109,7 @@ const NO_FRAME_SELECTED = "NO_FRAME_SELECTED";
 const TF_OVERFLOW = "TF_OVERFLOW";
 const CYCLE_DETECTED = "CYCLE_DETECTED";
 const FOLLOW_FRAME_NOT_FOUND = "FOLLOW_FRAME_NOT_FOUND";
+const ADD_TRANSFORM_ERROR = "ADD_TRANSFORM_ERROR";
 
 // An extensionId for creating the top-level settings nodes such as "Topics" and
 // "Custom Layers"
@@ -158,9 +161,14 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
   // extensionId -> SceneExtension
   public sceneExtensions = new Map<string, SceneExtension>();
   // datatype -> RendererSubscription[]
-  public schemaHandlers = new Map<string, RendererSubscription[]>();
+  public schemaSubscriptions = new Map<string, RendererSubscription[]>();
   // topicName -> RendererSubscription[]
-  public topicHandlers = new Map<string, RendererSubscription[]>();
+  public topicSubscriptions = new Map<string, RendererSubscription[]>();
+
+  /** HUD manager instance */
+  public hud;
+  /** Items to display in the HUD */
+  public hudItems: HUDItem[] = [];
   // layerId -> { action, handler }
   #customLayerActions = new Map<string, CustomLayerAction>();
   #scene: THREE.Scene;
@@ -231,6 +239,8 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
     this.#fetchAsset = args.fetchAsset;
     this.testOptions = args.testOptions;
     this.debugPicking = args.testOptions.debugPicking ?? false;
+
+    this.hud = new HUDItemManager(this.#onHUDItemsChange);
 
     this.settings = new SettingsManager(baseSettingsTree(this.interfaceMode));
     this.settings.on("update", () => this.emit("settingsTreeChange", this));
@@ -363,6 +373,11 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
     this.animationFrame();
   }
 
+  #onHUDItemsChange = () => {
+    this.hudItems = this.hud.getHUDItems();
+    this.emit("hudItemsChanged", this);
+  };
+
   #onDevicePixelRatioChange = () => {
     log.debug(`devicePixelRatio changed to ${window.devicePixelRatio}`);
     this.#resizeHandler(this.input.canvasSize);
@@ -452,6 +467,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
       resetAllFramesCursor: false,
     },
   ): void {
+    this.#clearSubscriptionQueues();
     if (clearTransforms === true) {
       this.#clearTransformTree();
     }
@@ -459,6 +475,7 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
       this.#resetAllFramesCursor();
     }
     this.settings.errors.clear();
+    this.hud.clear();
 
     for (const extension of this.sceneExtensions.values()) {
       extension.removeAllRenderables();
@@ -476,6 +493,19 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
     lastReadMessage: undefined,
     cursorTimeReached: undefined,
   };
+
+  #clearSubscriptionQueues(): void {
+    for (const subscriptions of this.topicSubscriptions.values()) {
+      for (const subscription of subscriptions) {
+        subscription.queue = undefined;
+      }
+    }
+    for (const subscriptions of this.schemaSubscriptions.values()) {
+      for (const subscription of subscriptions) {
+        subscription.queue = undefined;
+      }
+    }
+  }
 
   #resetAllFramesCursor() {
     this.#allFramesCursor = {
@@ -615,10 +645,16 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
       for (const subscription of subscriptions) {
         switch (subscription.type) {
           case "schema":
-            this.#addSchemaSubscriptions(subscription.schemaNames, subscription.subscription);
+            this.#addSchemaSubscriptions(
+              subscription.schemaNames,
+              subscription.subscription as RendererSubscription,
+            );
             break;
           case "topic":
-            this.#addTopicSubscription(subscription.topicName, subscription.subscription);
+            this.#addTopicSubscription(
+              subscription.topicName,
+              subscription.subscription as RendererSubscription,
+            );
             break;
         }
       }
@@ -627,10 +663,10 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
 
   // Clear topic and schema subscriptions and emit change events for both
   #clearSubscriptions(): void {
-    this.topicHandlers.clear();
-    this.schemaHandlers.clear();
-    this.emit("topicHandlersChanged", this);
-    this.emit("schemaHandlersChanged", this);
+    this.topicSubscriptions.clear();
+    this.schemaSubscriptions.clear();
+    this.emit("topicSubscriptionsChanged", this);
+    this.emit("schemaSubscriptionsChanged", this);
   }
 
   #addSchemaSubscriptions<T>(
@@ -638,24 +674,24 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
     subscription: RendererSubscription<T>,
   ): void {
     for (const schemaName of schemaNames) {
-      let handlers = this.schemaHandlers.get(schemaName);
+      let handlers = this.schemaSubscriptions.get(schemaName);
       if (!handlers) {
         handlers = [];
-        this.schemaHandlers.set(schemaName, handlers);
+        this.schemaSubscriptions.set(schemaName, handlers);
       }
       handlers.push(subscription as RendererSubscription);
     }
-    this.emit("schemaHandlersChanged", this);
+    this.emit("schemaSubscriptionsChanged", this);
   }
 
   #addTopicSubscription<T>(topic: string, subscription: RendererSubscription<T>): void {
-    let handlers = this.topicHandlers.get(topic);
+    let handlers = this.topicSubscriptions.get(topic);
     if (!handlers) {
       handlers = [];
-      this.topicHandlers.set(topic, handlers);
+      this.topicSubscriptions.set(topic, handlers);
     }
     handlers.push(subscription as RendererSubscription);
-    this.emit("topicHandlersChanged", this);
+    this.emit("topicSubscriptionsChanged", this);
   }
 
   /**
@@ -913,8 +949,8 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
       this.addCoordinateFrame(maybeHasFrameId.frame_id);
     }
 
-    handleMessage(messageEvent, this.topicHandlers.get(messageEvent.topic));
-    handleMessage(messageEvent, this.schemaHandlers.get(messageEvent.schemaName));
+    queueMessage(messageEvent, this.topicSubscriptions.get(messageEvent.topic));
+    queueMessage(messageEvent, this.schemaSubscriptions.get(messageEvent.schemaName));
   }
 
   /** Match the behavior of `tf::Transformer` by stripping leading slashes from
@@ -943,21 +979,37 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
   #addFrameTransform(transform: FrameTransform): void {
     const parentId = transform.parent_frame_id;
     const childId = transform.child_frame_id;
-    const stamp = toNanoSec(transform.timestamp);
-    const t = transform.translation;
-    const q = transform.rotation;
+    try {
+      const stamp = toNanoSec(transform.timestamp);
+      const t = transform.translation;
+      const q = transform.rotation;
 
-    this.addTransform(parentId, childId, stamp, t, q);
+      this.addTransform(parentId, childId, stamp, t, q);
+    } catch (err) {
+      this.settings.errors.add(
+        ["transforms"],
+        ADD_TRANSFORM_ERROR,
+        `Error adding transform for frame ${childId}: ${err.message}`,
+      );
+    }
   }
 
   #addTransformMessage(tf: TransformStamped): void {
     const normalizedParentId = this.normalizeFrameId(tf.header.frame_id);
     const normalizedChildId = this.normalizeFrameId(tf.child_frame_id);
-    const stamp = toNanoSec(tf.header.stamp);
-    const t = tf.transform.translation;
-    const q = tf.transform.rotation;
+    try {
+      const stamp = toNanoSec(tf.header.stamp);
+      const t = tf.transform.translation;
+      const q = tf.transform.rotation;
 
-    this.addTransform(normalizedParentId, normalizedChildId, stamp, t, q);
+      this.addTransform(normalizedParentId, normalizedChildId, stamp, t, q);
+    } catch (err) {
+      this.settings.errors.add(
+        ["transforms"],
+        ADD_TRANSFORM_ERROR,
+        `Error adding transform for frame ${normalizedChildId}: ${err.message}`,
+      );
+    }
   }
 
   // Create a new transform and add it to the renderer's TransformTree
@@ -1036,13 +1088,17 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
     this.followFrameId = frameId;
   }
 
-  public async fetchAsset(uri: string, options?: { signal: AbortSignal }): Promise<Asset> {
+  public async fetchAsset(
+    uri: string,
+    options?: { signal?: AbortSignal; baseUrl?: string },
+  ): Promise<Asset> {
     return await this.#fetchAsset(uri, options);
   }
 
   #frameHandler = (currentTime: bigint): void => {
     this.#rendering = true;
     this.currentTime = currentTime;
+    this.#handleSubscriptionQueues();
     this.#updateFrameErrors();
     this.#updateFixedFrameId();
     this.#updateResolution();
@@ -1077,6 +1133,36 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
 
     this.gl.info.reset();
   };
+
+  /** iterates through all subscription message queues, processes them, and calls their handler for each message in the frame */
+  #handleSubscriptionQueues(): void {
+    for (const subscriptions of this.topicSubscriptions.values()) {
+      for (const subscription of subscriptions) {
+        if (!subscription.queue) {
+          continue;
+        }
+        const { queue, filterQueue } = subscription;
+        const processedQueue = filterQueue ? filterQueue(queue) : queue;
+        subscription.queue = undefined;
+        for (const messageEvent of processedQueue) {
+          subscription.handler(messageEvent);
+        }
+      }
+    }
+    for (const subscriptions of this.schemaSubscriptions.values()) {
+      for (const subscription of subscriptions) {
+        if (!subscription.queue) {
+          continue;
+        }
+        const { queue, filterQueue } = subscription;
+        const processedQueue = filterQueue ? filterQueue(queue) : queue;
+        subscription.queue = undefined;
+        for (const messageEvent of processedQueue) {
+          subscription.handler(messageEvent);
+        }
+      }
+    }
+  }
 
   #updateFixedFrameId(): void {
     const frame =
@@ -1391,13 +1477,14 @@ export class Renderer extends EventEmitter<RendererEvents> implements IRenderer 
   }
 }
 
-function handleMessage(
+function queueMessage(
   messageEvent: Readonly<MessageEvent>,
   subscriptions: RendererSubscription[] | undefined,
 ): void {
   if (subscriptions) {
     for (const subscription of subscriptions) {
-      subscription.handler(messageEvent);
+      subscription.queue = subscription.queue ?? [];
+      subscription.queue.push(messageEvent);
     }
   }
 }

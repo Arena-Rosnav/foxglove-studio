@@ -3,7 +3,7 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
 import { toNanoSec } from "@foxglove/rostime";
-import { SceneEntity, SceneEntityDeletion, SceneEntityDeletionType } from "@foxglove/schemas";
+import { ModelPrimitive, SceneEntity as FoxgloveSceneEntity, SceneEntityDeletion, SceneEntityDeletionType } from "@foxglove/schemas";
 
 import { PrimitivePool } from "./primitives/PrimitivePool";
 import { RenderableArrows } from "./primitives/RenderableArrows";
@@ -27,6 +27,18 @@ export type EntityTopicUserData = BaseUserData & {
   topic: string;
   settings: LayerSettingsEntity;
 };
+
+type ModelPrimitiveAnimated = {
+  animation: {
+      name: string;
+      loop: boolean;
+      speed: number;
+  };
+} & ModelPrimitive;
+
+type SceneEntity = {
+  models: ModelPrimitive[] | ModelPrimitiveAnimated[];
+} & FoxgloveSceneEntity;
 
 type EntityRenderables = {
   [PrimitiveType.CUBES]?: RenderableCubes;
@@ -129,7 +141,7 @@ export class TopicEntities extends Renderable<EntityTopicUserData> {
     }
   }
 
-  public addOrUpdateEntity(entity: SceneEntity, receiveTime: bigint): void {
+  public addOrUpdateEntity(entity: SceneEntity , receiveTime: bigint): void {
     let renderables = this.#renderablesById.get(entity.id);
     if (!renderables) {
       renderables = {};

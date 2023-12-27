@@ -3,10 +3,11 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
 import * as THREE from "three";
+import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils';
 
 import { crc32 } from "@foxglove/crc";
 import { toNanoSec } from "@foxglove/rostime";
-import { ModelPrimitive, SceneEntity } from "@foxglove/schemas";
+import { ModelPrimitive, SceneEntity as FoxgloveSceneEntity } from "@foxglove/schemas";
 
 import { RenderablePrimitive } from "./RenderablePrimitive";
 import type { IRenderer } from "../../IRenderer";
@@ -30,6 +31,18 @@ type RenderableModel = {
   /** Reference to the original message for checking whether this renderable can be reused */
   primitive: ModelPrimitive;
 };
+
+type ModelPrimitiveAnimated = {
+  animation: {
+    name: string;
+    loop: boolean;
+    speed: number;
+  };
+} & ModelPrimitive;
+
+type SceneEntity = {
+  models: ModelPrimitive[] | ModelPrimitiveAnimated[];
+} & FoxgloveSceneEntity;
 
 function byteArraysEqual(a: Uint8Array, b: Uint8Array): boolean {
   if (a.length !== b.length) {
@@ -55,30 +68,18 @@ export class RenderableModels extends RenderablePrimitive {
   }
 
   /**
-   * Reuse a renderable from `prevRenderables` if a matching one is found using `primitivesMatch()`, otherwise load a new one.
+   * Creates a new renderable for the given primitive
+   * @param primitive Primitive to instantiate renderable with
    * @param getURL Called to retrieve the URL that should be used to load the primitive
    * @param revokeURL Called with the URL returned by getURL after loading is complete
    */
-  async #createOrUpdateRenderable(
+  async #createRenderable(
     primitive: ModelPrimitive,
-    prevRenderables: RenderableModel[] | undefined,
-    primitivesMatch: (a: ModelPrimitive, b: ModelPrimitive) => boolean,
     getURL: (_: ModelPrimitive) => string,
     revokeURL: (_: string) => void,
   ): Promise<RenderableModel | undefined> {
-    let renderable: RenderableModel | undefined;
-    if (prevRenderables) {
-      const idx = prevRenderables.findIndex((prev) => primitivesMatch(prev.primitive, primitive));
-      if (idx >= 0) {
-        renderable = prevRenderables.splice(idx, 1)[0]!;
-      }
-    }
-    if (renderable) {
-      this.#updateModel(renderable, primitive);
-      return renderable;
-    }
-
     const url = getURL(primitive);
+    let renderable: RenderableModel | undefined;
     try {
       // Load the model if necessary
       const cachedModel = await this.#loadCachedModel(url, {
@@ -86,7 +87,6 @@ export class RenderableModels extends RenderablePrimitive {
       });
       if (cachedModel) {
         renderable = { model: cloneAndPrepareModel(cachedModel), cachedModel, primitive };
-        this.#updateModel(renderable, primitive);
       }
     } finally {
       revokeURL(url);
@@ -94,9 +94,32 @@ export class RenderableModels extends RenderablePrimitive {
     return renderable;
   }
 
-  #updateModels(models: ModelPrimitive[]) {
-    this.clear();
+  /**
+   * Uses matching function to find, remove and return the first renderable from the list that matches
+   * @param renderables - (MUTABLE) list of RenderableModel objects
+   * @param primitivesMatch - Comparison function that returns true if the two primitives are a match
+   * @param primitive - Primitive to match against
+   * @returns - matching renderable if found, otherwise undefined
+   */
+  #removeMatchFromList(
+    renderables: RenderableModel[] | undefined,
+    isMatch: (model: ModelPrimitive) => boolean,
+  ) {
+    if (renderables) {
+      const idx = renderables.findIndex((prev) => isMatch(prev.primitive));
+      if (idx >= 0) {
+        // remove from previous renderables so that it doesn't get disposed
+        return renderables.splice(idx, 1)[0]!;
+      }
+    }
+    return undefined;
+  }
 
+  /**
+   * Updates renderables to reflect a new list of primitives
+   * @param models - list of ModelPrimitive objects to show in the next update
+   */
+  #updateModels(models: ModelPrimitive[] | ModelPrimitiveAnimated[]) {
     const originalUpdateCount = ++this.#updateCount;
 
     const prevRenderablesByUrl = this.#renderablesByUrl;
@@ -105,27 +128,57 @@ export class RenderableModels extends RenderablePrimitive {
     const prevRenderablesByDataCrc = this.#renderablesByDataCrc;
     this.#renderablesByDataCrc = new Map();
 
+    const modelsToLoad: ModelPrimitive[] = [];
+
+    // iterate over new primitives and update existing renderables
+    // add primitives that don't have models yet to modelsToLoad
+    for (const primitive of models) {
+      let prevRenderables: RenderableModel[] | undefined;
+      let newRenderables: RenderableModel[] | undefined;
+      let renderable: RenderableModel | undefined;
+      if (primitive.url.length === 0) {
+        const dataCrc = crc32(primitive.data);
+        prevRenderables = prevRenderablesByDataCrc.get(dataCrc);
+        newRenderables = this.#renderablesByDataCrc.get(dataCrc);
+        if (!newRenderables) {
+          newRenderables = [];
+          this.#renderablesByDataCrc.set(dataCrc, newRenderables);
+        }
+        renderable = this.#removeMatchFromList(prevRenderables, (model) =>
+          dataPrimitivesMatch(model, primitive),
+        );
+      } else {
+        prevRenderables = prevRenderablesByUrl.get(primitive.url);
+        newRenderables = this.#renderablesByUrl.get(primitive.url);
+        if (!newRenderables) {
+          newRenderables = [];
+          this.#renderablesByUrl.set(primitive.url, newRenderables);
+        }
+        renderable = this.#removeMatchFromList(prevRenderables, (model) =>
+          urlPrimitivesMatch(model, primitive),
+        );
+      }
+      // renderable not found in prevRenderables
+      if (renderable) {
+        this.#updateModel(renderable, primitive);
+        newRenderables.push(renderable);
+        this.add(renderable.model);
+      } else {
+        modelsToLoad.push(primitive);
+      }
+    }
+
     Promise.all(
-      models.map(async (primitive) => {
-        let prevRenderables: RenderableModel[] | undefined;
+      modelsToLoad.map(async (primitive) => {
         let newRenderables: RenderableModel[] | undefined;
         let renderable: RenderableModel | undefined;
         if (primitive.url.length === 0) {
           const dataCrc = crc32(primitive.data);
-          prevRenderables = prevRenderablesByDataCrc.get(dataCrc);
-          newRenderables = this.#renderablesByDataCrc.get(dataCrc);
-          if (!newRenderables) {
-            newRenderables = [];
-            this.#renderablesByDataCrc.set(dataCrc, newRenderables);
-          }
-
+          // this should always resolve because it was created in the loop above
+          newRenderables = this.#renderablesByDataCrc.get(dataCrc)!;
           try {
-            renderable = await this.#createOrUpdateRenderable(
+            renderable = await this.#createRenderable(
               primitive,
-              prevRenderables,
-              (model1, model2) =>
-                model1.media_type === model2.media_type &&
-                byteArraysEqual(model1.data, model2.data),
               (model) => URL.createObjectURL(new Blob([model.data], { type: model.media_type })),
               (url) => {
                 URL.revokeObjectURL(url);
@@ -139,21 +192,13 @@ export class RenderableModels extends RenderablePrimitive {
             );
           }
         } else {
-          prevRenderables = prevRenderablesByUrl.get(primitive.url);
-          newRenderables = this.#renderablesByUrl.get(primitive.url);
-          if (!newRenderables) {
-            newRenderables = [];
-            this.#renderablesByUrl.set(primitive.url, newRenderables);
-          }
-
+          // this should always resolve because it was created in the loop above
+          newRenderables = this.#renderablesByUrl.get(primitive.url)!;
           try {
-            renderable = await this.#createOrUpdateRenderable(
+            renderable = await this.#createRenderable(
               primitive,
-              prevRenderables,
-              (model1, model2) =>
-                model1.url === model2.url && model1.media_type === model2.media_type,
               (model) => model.url,
-              (_url) => {},
+              (_url) => { },
             );
           } catch (err) {
             this.renderer.settings.errors.add(
@@ -169,6 +214,7 @@ export class RenderableModels extends RenderablePrimitive {
           return;
         }
         if (renderable) {
+          this.#updateModel(renderable, primitive);
           newRenderables.push(renderable);
           this.add(renderable.model);
 
@@ -183,22 +229,27 @@ export class RenderableModels extends RenderablePrimitive {
       })
       .catch(console.error)
       .finally(() => {
-        // remove remaining models that are no longer used
-        for (const renderables of prevRenderablesByUrl.values()) {
-          for (const renderable of renderables) {
-            renderable.model.removeFromParent();
-            this.#disposeModel(renderable);
-          }
-        }
-        for (const renderables of prevRenderablesByDataCrc.values()) {
-          for (const renderable of renderables) {
-            renderable.model.removeFromParent();
-            this.#disposeModel(renderable);
-          }
-        }
+        // update for new models
         this.#updateOutlineVisibility();
-        this.renderer.queueAnimationFrame();
       });
+    // Only unused models should be left in the `prevRenderables` lists after
+    // using this.#removeMatchFromList() above
+    for (const renderables of prevRenderablesByUrl.values()) {
+      for (const renderable of renderables) {
+        renderable.model.removeFromParent();
+        this.#disposeModel(renderable);
+      }
+    }
+    for (const renderables of prevRenderablesByDataCrc.values()) {
+      for (const renderable of renderables) {
+        renderable.model.removeFromParent();
+        this.#disposeModel(renderable);
+      }
+    }
+
+    // Necessary to have this twice because we want old models be synced with outline settings before the new models load
+    // update for existing models that haven't changed
+    this.#updateOutlineVisibility();
   }
 
   public override dispose(): void {
@@ -279,12 +330,12 @@ export class RenderableModels extends RenderablePrimitive {
     return cachedModel;
   }
 
-  #updateModel(renderable: RenderableModel, primitive: ModelPrimitive) {
+  #updateModel(renderable: RenderableModel, primitive: ModelPrimitive | ModelPrimitiveAnimated) {
     const overrideColor = this.userData.settings.color
       ? stringToRgba(tempRgba, this.userData.settings.color)
       : primitive.override_color
-      ? primitive.color
-      : undefined;
+        ? primitive.color
+        : undefined;
     if (overrideColor) {
       if (!renderable.material) {
         renderable.material = new THREE.MeshStandardMaterial({
@@ -318,17 +369,60 @@ export class RenderableModels extends RenderablePrimitive {
       primitive.pose.orientation.z,
       primitive.pose.orientation.w,
     );
+
+    if ("animation" in primitive) {
+      this.#handleAnimationUpdate(renderable, primitive);
+    }
   }
 
   #disposeModel(renderable: RenderableModel) {
     renderable.material?.dispose();
     disposeMeshesRecursive(renderable.model);
     disposeMeshesRecursive(renderable.cachedModel);
+    if (renderable.model.userData.animationInterval) {
+      clearInterval(renderable.model.userData.animationInterval);
+      renderable.model.userData.animationInterval = undefined;
+      renderable.model.userData.animationStarted = false;
+      renderable.model.userData.mixer = undefined;
+      renderable.model.animations = [];
+    }
+  }
+
+  #handleAnimationUpdate(renderable: RenderableModel, primitive: ModelPrimitiveAnimated) {
+    if (renderable.model.userData.animationStarted === true) {
+      renderable.model.userData.mixer.timeScale = primitive.animation.speed;
+      return;
+    }
+
+    const animation = primitive.animation;
+    const mixer = new THREE.AnimationMixer(renderable.model);
+    const clip = THREE.AnimationClip.findByName(renderable.cachedModel.userData.animationClips, animation.name);
+    if (clip) {
+      const action = mixer.clipAction(clip);
+      action.setLoop(animation.loop ? THREE.LoopRepeat : THREE.LoopOnce, Infinity);
+      action.clampWhenFinished = true;
+      action.timeScale = animation.speed;
+      action.play();
+      renderable.model.userData.animationStarted = true;
+      renderable.model.animations.push(clip);
+      renderable.model.userData.mixer = mixer;
+      renderable.model.userData.animationInterval = setInterval(() => {
+        mixer.update(0.05);
+      }, 50);
+    }
   }
 }
 
 function cloneAndPrepareModel(cachedModel: LoadedModel) {
-  const model = cachedModel.clone(true);
+  const model = SkeletonUtils.clone(cachedModel) as LoadedModel;
   removeLights(model);
   return new THREE.Group().add(model);
 }
+
+/** Used to check that data primitives are using the same model data */
+const dataPrimitivesMatch = (model1: ModelPrimitive, model2: ModelPrimitive) =>
+  model1.media_type === model2.media_type && byteArraysEqual(model1.data, model2.data);
+
+/** Used to check that url-data primitives are using the same model data */
+const urlPrimitivesMatch = (model1: ModelPrimitive, model2: ModelPrimitive) =>
+  model1.url === model2.url && model1.media_type === model2.media_type;
