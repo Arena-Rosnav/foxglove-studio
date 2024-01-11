@@ -80,6 +80,9 @@ export type WorkspaceActions = {
     // Export the current layout to a file
     // This will perform a browser download of the current layout to a file
     exportToFile: () => void;
+    // Import a layout from a URL
+    // This will replace the current layout with the imported layout
+    importFromURL: (url: string, completeCallback?: Function) => void;
   };
 };
 
@@ -159,6 +162,32 @@ export function useWorkspaceActions(): WorkspaceActions {
     }
 
     setCurrentLayout({ data });
+
+    void analytics.logEvent(AppEvent.LAYOUT_IMPORT);
+  }, [analytics, appContext, isMounted, setCurrentLayout]);
+
+
+  const importLayoutFromURL = useCallbackWithToast(async (url: string, completeCallback?: Function) => {
+
+    const file = await fetch(url, {
+      headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json'
+      }
+    });
+    const content = await file.json();
+
+    if (!isMounted()) {
+      return;
+    }
+
+    const data = content as LayoutData;
+
+    setCurrentLayout({ data });
+
+    if (completeCallback) {
+      completeCallback();
+    }
 
     void analytics.logEvent(AppEvent.LAYOUT_IMPORT);
   }, [analytics, appContext, isMounted, setCurrentLayout]);
@@ -316,6 +345,7 @@ export function useWorkspaceActions(): WorkspaceActions {
       layoutActions: {
         importFromFile: importLayoutFromFile,
         exportToFile: exportLayoutToFile,
+        importFromURL: importLayoutFromURL,
       },
     };
   }, [exportLayoutToFile, importLayoutFromFile, openFile, set]);

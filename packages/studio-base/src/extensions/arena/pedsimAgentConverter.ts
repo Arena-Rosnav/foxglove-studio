@@ -90,7 +90,7 @@ export default function arenaPedsimAgents(): RegisterMessageConverterArgs<ArenaS
                     pose: agentState.pose,
                     scale: { x: 0.013, y: 0.013, z: 0.013 },
                     color: { r: 1, g: 0, b: 0, a: 1 },
-                    url: `${hostOrigin}/lib/foxglove-models/nathan-walking.glb`,
+                    url: `${hostOrigin}/foxglove-assets/models/nathan-walking.glb`,
                     media_type: "model/gltf",
                     override_color: false,
                     data: new Uint8Array(),

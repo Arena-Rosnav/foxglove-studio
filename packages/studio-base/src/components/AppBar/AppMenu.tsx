@@ -126,6 +126,18 @@ export function AppMenu(props: AppMenuProps): JSX.Element {
     () => [
       {
         type: "item",
+        label: "Show running instances",
+        key: "running-instances",
+        onClick: () => {
+          dialogActions.dataSource.open("start");
+          handleNestedMenuClose();
+        },
+      },
+      {
+        type: "divider",
+      },
+      {
+        type: "item",
         label: leftSidebarOpen ? t("hideLeftSidebar") : t("showLeftSidebar"),
         key: "left-sidebar",
         shortcut: "[",

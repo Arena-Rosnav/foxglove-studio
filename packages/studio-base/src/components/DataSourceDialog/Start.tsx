@@ -2,21 +2,28 @@
 // License, v2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
-import { Button, Link, List, ListItem, ListItemButton, SvgIcon, Typography } from "@mui/material";
-import { ReactNode, useMemo } from "react";
+import { Button, CircularProgress, Link, List, ListItem, ListItemButton, SvgIcon, Typography } from "@mui/material";
+import { ReactNode, useCallback, useLayoutEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import tinycolor from "tinycolor2";
 import { makeStyles } from "tss-react/mui";
 
-import { DataSourceDialogItem } from "@foxglove/studio-base/components/DataSourceDialog/DataSourceDialog";
 import FoxgloveLogoText from "@foxglove/studio-base/components/FoxgloveLogoText";
 import Stack from "@foxglove/studio-base/components/Stack";
 import TextMiddleTruncate from "@foxglove/studio-base/components/TextMiddleTruncate";
 import { useAnalytics } from "@foxglove/studio-base/context/AnalyticsContext";
-import { useCurrentUser } from "@foxglove/studio-base/context/BaseUserContext";
 import { usePlayerSelection } from "@foxglove/studio-base/context/PlayerSelectionContext";
 import { useWorkspaceActions } from "@foxglove/studio-base/context/Workspace/useWorkspaceActions";
 import { AppEvent } from "@foxglove/studio-base/services/IAnalytics";
+
+type ArenaIntance = {
+  name: string;
+  robot: string;
+  hostname: string;
+  port: string;
+  startedAt: string;
+  secure: boolean;
+}
 
 const useStyles = makeStyles()((theme) => ({
   logo: {
@@ -32,7 +39,7 @@ const useStyles = makeStyles()((theme) => ({
         "content sidebar"
       `,
       gridTemplateRows: `content auto`,
-      gridTemplateColumns: `1fr 375px`,
+      gridTemplateColumns: `500px 1fr`,
     },
   },
   header: {
@@ -68,9 +75,9 @@ const useStyles = makeStyles()((theme) => ({
   },
   sidebar: {
     gridArea: "sidebar",
+    overflowY: "auto",
     backgroundColor: tinycolor(theme.palette.text.primary).setAlpha(0.04).toRgbString(),
     padding: theme.spacing(0, 5, 5),
-
     [theme.breakpoints.down("md")]: {
       padding: theme.spacing(4),
     },
@@ -163,260 +170,104 @@ type SidebarItem = {
   actions?: ReactNode;
 };
 
-function SidebarItems(props: {
-  onSelectView: (newValue: DataSourceDialogItem) => void;
-}): JSX.Element {
-  const { onSelectView } = props;
-  const { currentUserType, signIn } = useCurrentUser();
-  const analytics = useAnalytics();
-  const { classes } = useStyles();
-  const { t } = useTranslation("openDialog");
+function SidebarItems(): JSX.Element {
+  const { layoutActions } = useWorkspaceActions();
+  const { availableSources, selectSource } = usePlayerSelection();
+  const [arenaRunningInstances, setArenaRunningInstances] = useState<ArenaIntance[]>([]);
+  const [loadingInstance, setLoadingInstance] = useState<string | undefined>();
 
-  const { freeUser, teamOrEnterpriseUser } = useMemo(() => {
-    const demoItem = {
-      id: "new",
-      title: t("newToFoxgloveStudio"),
-      text: t("newToFoxgloveStudioDescription"),
+  const getHostOrigin = () => {
+    let hostOrigin = window.location.origin;
+    if (hostOrigin === "null" && window.location.ancestorOrigins.length > 0) {
+      hostOrigin = window.location.ancestorOrigins[0] as string;
+    }
+    return hostOrigin;
+  }
+
+  const importRobotAndConnect = useCallback((instance: ArenaIntance) => {
+    if (loadingInstance) {
+      return;
+    }
+    setLoadingInstance(btoa(instance.name));
+    const robot = instance.robot.replace(/[^a-zA-Z0-9]/g, "");
+    layoutActions.importFromURL(`${getHostOrigin()}/foxglove-assets/robot/${robot}/layout.json`, () => {
+      const foxgloveWebSocketSource = availableSources.find((source) => source.type === "connection" && source.id === "foxglove-websocket");
+      if (!foxgloveWebSocketSource) {
+        return;
+      }
+      selectSource(foxgloveWebSocketSource.id,
+        {
+          type: "connection",
+          params: {
+            url: (instance.secure ? "wss://" : "ws://") + instance.hostname + ":" + instance.port,
+          },
+        }
+      );
+      setLoadingInstance(undefined);
+    });
+  }, [setLoadingInstance, loadingInstance]);
+
+
+  useLayoutEffect(() => {
+    fetch(`${getHostOrigin()}/foxglove-assets/running.json`, {
+      method: "GET",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    }).then((response) => {
+      response.json().then((data) => {
+        setArenaRunningInstances(data);
+      });
+    });
+  }, []);
+
+  const arenaInstances = useMemo(() => {
+    return {
+      id: "newArena",
+      title: "Arena Running Instances",
       actions: (
-        <>
-          <Button
-            onClick={() => {
-              onSelectView("demo");
-              void analytics.logEvent(AppEvent.DIALOG_SELECT_VIEW, { type: "demo" });
-              void analytics.logEvent(AppEvent.DIALOG_CLICK_CTA, {
-                user: currentUserType,
-                cta: "demo",
-              });
-            }}
-            className={classes.button}
-            variant="outlined"
-          >
-            {t("exploreSampleData")}
-          </Button>
-          <Button
-            href="https://docs.foxglove.dev/docs/connecting-to-data/introduction"
-            target="_blank"
-            className={classes.button}
-            onClick={() => {
-              void analytics.logEvent(AppEvent.DIALOG_CLICK_CTA, {
-                user: currentUserType,
-                cta: "docs",
-              });
-            }}
-          >
-            {t("viewOurDocs")}
-          </Button>
-        </>
+        <List sx={{
+          maxHeight: 400,
+          overflowY: 'auto',
+        }}>
+          {arenaRunningInstances.length > 0 && arenaRunningInstances.map((instance) => (
+            <DataSourceOption
+              key={btoa(instance.name)}
+              text={instance.name + " — Robot: " + instance.robot}
+              secondaryText={"URL: " + (instance.secure ? "wss://" : "ws://") + instance.hostname + ":" + instance.port + " | Started at: " + new Date(instance.startedAt).toLocaleString("de-DE", { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: "2-digit" })}
+              icon={loadingInstance == btoa(instance.name) ? (
+                <CircularProgress
+                  size={32}
+                  color="primary"
+                  variant="indeterminate"
+                />) : (
+                <SvgIcon fontSize="large" color="primary" viewBox="0 0 2048 2048">
+                  <path d="M1408 256h640v640h-640V640h-120l-449 896H640v256H0v-640h640v256h120l449-896h199V256zM512 1664v-384H128v384h384zm1408-896V384h-384v384h384z" />
+                </SvgIcon>
+              )}
+              onClick={() => {
+                importRobotAndConnect(instance);
+              }}
+              target="_blank"
+            />
+          ))}
+        </List>
       ),
     };
-    return {
-      freeUser: [demoItem],
-      teamOrEnterpriseUser: [
-        demoItem,
-        {
-          id: "join-community",
-          title: t("joinOurCommunity"),
-          text: t("joinOurCommunityDescription"),
-          actions: (
-            <>
-              <Button
-                href="https://foxglove.dev/slack"
-                target="_blank"
-                className={classes.button}
-                variant="outlined"
-                onClick={() => {
-                  void analytics.logEvent(AppEvent.DIALOG_CLICK_CTA, {
-                    user: currentUserType,
-                    cta: "join-slack",
-                  });
-                }}
-              >
-                {t("joinOurSlack")}
-              </Button>
-              <Button
-                href="https://github.com/foxglove/studio/issues/new/choose"
-                target="_blank"
-                className={classes.button}
-                onClick={() => {
-                  void analytics.logEvent(AppEvent.DIALOG_CLICK_CTA, {
-                    user: currentUserType,
-                    cta: "go-to-github",
-                  });
-                }}
-              >
-                {t("openAGitHubIssue")}
-              </Button>
-            </>
-          ),
-        },
-        {
-          id: "need-help",
-          title: t("needHelp"),
-          text: t("needHelpDescription"),
-          actions: (
-            <>
-              <Button
-                href="https://docs.foxglove.dev/docs"
-                target="_blank"
-                className={classes.button}
-                variant="outlined"
-                onClick={() => {
-                  void analytics.logEvent(AppEvent.DIALOG_CLICK_CTA, {
-                    user: currentUserType,
-                    cta: "docs",
-                  });
-                }}
-              >
-                {t("viewOurDocs")}
-              </Button>
-              <Button
-                href="https://foxglove.dev/tutorials"
-                target="_blank"
-                className={classes.button}
-                onClick={() => {
-                  void analytics.logEvent(AppEvent.DIALOG_CLICK_CTA, {
-                    user: currentUserType,
-                    cta: "tutorials",
-                  });
-                }}
-              >
-                {t("seeTutorials")}
-              </Button>
-            </>
-          ),
-        },
-      ],
-    };
-  }, [analytics, classes.button, currentUserType, onSelectView, t]);
-
-  const sidebarItems: SidebarItem[] = useMemo(() => {
-    switch (currentUserType) {
-      case "unauthenticated":
-        return [
-          ...freeUser,
-          {
-            id: "collaborate",
-            title: t("collaborateTitle"),
-            text: (
-              <ul className={classes.featureList}>
-                <li>{t("secureStorageOfData")}</li>
-                <li>{t("convenientWebInterface")}</li>
-                <li>{t("canBeShared")}</li>
-              </ul>
-            ),
-            actions: signIn ? (
-              <>
-                <Button
-                  className={classes.button}
-                  variant="outlined"
-                  onClick={() => {
-                    void analytics.logEvent(AppEvent.DIALOG_CLICK_CTA, {
-                      user: currentUserType,
-                      cta: "create-account",
-                    });
-                    signIn();
-                  }}
-                >
-                  {t("createAFreeAccount")}
-                </Button>
-                <Button
-                  className={classes.button}
-                  onClick={() => {
-                    void analytics.logEvent(AppEvent.DIALOG_CLICK_CTA, {
-                      user: currentUserType,
-                      cta: "sign-in",
-                    });
-                    signIn();
-                  }}
-                >
-                  {t("signIn")}
-                </Button>
-              </>
-            ) : (
-              <Button
-                href="https://foxglove.dev/data-platform"
-                target="_blank"
-                className={classes.button}
-                variant="outlined"
-                onClick={() => {
-                  void analytics.logEvent(AppEvent.DIALOG_CLICK_CTA, {
-                    user: currentUserType,
-                    cta: "create-account",
-                  });
-                }}
-              >
-                {t("learnMore")}
-              </Button>
-            ),
-          },
-        ];
-      case "authenticated-free":
-        return [
-          {
-            id: "start-collaborating",
-            title: t("startCollaborating"),
-            text: t("startCollaboratingDescription"),
-            actions: (
-              <>
-                <Button
-                  href="https://console.foxglove.dev/recordings"
-                  target="_blank"
-                  variant="outlined"
-                  className={classes.button}
-                  onClick={() => {
-                    void analytics.logEvent(AppEvent.DIALOG_CLICK_CTA, {
-                      user: currentUserType,
-                      cta: "upload-to-dp",
-                    });
-                  }}
-                >
-                  {t("uploadToDataPlatform")}
-                </Button>
-                <Button
-                  href="https://docs.foxglove.dev/docs/visualization/layouts#team-layouts"
-                  target="_blank"
-                  className={classes.button}
-                >
-                  {t("shareLayouts")}
-                </Button>
-              </>
-            ),
-          },
-          ...freeUser,
-        ];
-      case "authenticated-team":
-        return teamOrEnterpriseUser;
-      case "authenticated-enterprise":
-        return teamOrEnterpriseUser;
-    }
-  }, [
-    analytics,
-    classes.button,
-    classes.featureList,
-    currentUserType,
-    freeUser,
-    signIn,
-    teamOrEnterpriseUser,
-    t,
-  ]);
+  }, [arenaRunningInstances, loadingInstance]) as SidebarItem;
 
   return (
     <>
-      {sidebarItems.map((item) => (
-        <Stack key={item.id}>
-          <Typography variant="h5" gutterBottom>
-            {item.title}
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
-            {item.text}
-          </Typography>
-          {item.actions != undefined && (
-            <Stack direction="row" flexWrap="wrap" alignItems="center" gap={1} paddingTop={1.5}>
-              {item.actions}
-            </Stack>
-          )}
-        </Stack>
-      ))}
+      <Stack key={arenaInstances.id}>
+        <Typography variant="h5" gutterBottom>
+          {arenaInstances.title}
+        </Typography>
+        {arenaInstances.actions != undefined && (
+          <Stack direction="row" flexWrap="wrap" alignItems="center" gap={1} paddingTop={1.5}>
+            {arenaInstances.actions}
+          </Stack>
+        )}
+      </Stack>
     </>
   );
 }
@@ -427,6 +278,7 @@ export default function Start(): JSX.Element {
   const analytics = useAnalytics();
   const { t } = useTranslation("openDialog");
   const { dialogActions } = useWorkspaceActions();
+  const [sidebarItemsKey, setSidebarItemsKey] = useState(0);
 
   const startItems = useMemo(() => {
     return [
@@ -528,7 +380,10 @@ export default function Start(): JSX.Element {
       </Stack>
       <div className={classes.spacer} />
       <Stack gap={4} className={classes.sidebar}>
-        <SidebarItems onSelectView={dialogActions.dataSource.open} />
+        <SidebarItems key={sidebarItemsKey} />
+        <Button variant="text" color="primary" onClick={() => { setSidebarItemsKey(sidebarItemsKey + 1); }}>
+          Refresh
+        </Button>
       </Stack>
     </Stack>
   );
