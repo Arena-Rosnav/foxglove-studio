@@ -153,7 +153,7 @@ export class ModelCache {
     gltf.scene.rotateX(Math.PI / 2);
     gltf.scene.userData = {
       animationClips: gltf.animations,
-    }
+    };
 
     return gltf.scene;
   }

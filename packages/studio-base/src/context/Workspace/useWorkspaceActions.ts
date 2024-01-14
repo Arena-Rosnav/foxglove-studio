@@ -166,31 +166,32 @@ export function useWorkspaceActions(): WorkspaceActions {
     void analytics.logEvent(AppEvent.LAYOUT_IMPORT);
   }, [analytics, appContext, isMounted, setCurrentLayout]);
 
+  const importLayoutFromURL = useCallbackWithToast(
+    async (url: string, completeCallback?: Function) => {
+      const file = await fetch(url, {
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+      });
+      const content = await file.json();
 
-  const importLayoutFromURL = useCallbackWithToast(async (url: string, completeCallback?: Function) => {
-
-    const file = await fetch(url, {
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json'
+      if (!isMounted()) {
+        return;
       }
-    });
-    const content = await file.json();
 
-    if (!isMounted()) {
-      return;
-    }
+      const data = content as LayoutData;
 
-    const data = content as LayoutData;
+      setCurrentLayout({ data });
 
-    setCurrentLayout({ data });
+      if (completeCallback) {
+        completeCallback();
+      }
 
-    if (completeCallback) {
-      completeCallback();
-    }
-
-    void analytics.logEvent(AppEvent.LAYOUT_IMPORT);
-  }, [analytics, appContext, isMounted, setCurrentLayout]);
+      void analytics.logEvent(AppEvent.LAYOUT_IMPORT);
+    },
+    [analytics, appContext, isMounted, setCurrentLayout],
+  );
 
   const exportLayoutToFile = useCallback(() => {
     // Use a stable getter to fetch the current layout to avoid thrashing the

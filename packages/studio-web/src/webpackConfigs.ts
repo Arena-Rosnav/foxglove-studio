@@ -71,50 +71,50 @@ export const devServerConfig = (params: ConfigParams): WebpackConfiguration => (
 
 export const mainConfig =
   (params: ConfigParams) =>
-    (env: unknown, argv: WebpackArgv): Configuration => {
-      const isDev = argv.mode === "development";
-      const isServe = argv.env?.WEBPACK_SERVE ?? false;
+  (env: unknown, argv: WebpackArgv): Configuration => {
+    const isDev = argv.mode === "development";
+    const isServe = argv.env?.WEBPACK_SERVE ?? false;
 
-      const allowUnusedVariables = isDev;
+    const allowUnusedVariables = isDev;
 
-      const plugins: WebpackPluginInstance[] = [];
+    const plugins: WebpackPluginInstance[] = [];
 
-      if (isServe) {
-        plugins.push(new ReactRefreshPlugin());
-      }
+    if (isServe) {
+      plugins.push(new ReactRefreshPlugin());
+    }
 
-      const appWebpackConfig = makeConfig(env, argv, {
-        allowUnusedVariables,
-        version: params.version,
-      });
+    const appWebpackConfig = makeConfig(env, argv, {
+      allowUnusedVariables,
+      version: params.version,
+    });
 
-      const config: Configuration = {
-        name: "main",
+    const config: Configuration = {
+      name: "main",
 
-        ...appWebpackConfig,
+      ...appWebpackConfig,
 
-        target: "web",
-        context: params.contextPath,
-        entry: params.entrypoint,
-        devtool: isDev ? "eval-cheap-module-source-map" : params.prodSourceMap,
+      target: "web",
+      context: params.contextPath,
+      entry: params.entrypoint,
+      devtool: isDev ? "eval-cheap-module-source-map" : params.prodSourceMap,
 
-        output: {
-          publicPath: params.publicPath ?? "auto",
+      output: {
+        publicPath: params.publicPath ?? "auto",
 
-          // Output filenames should include content hashes in order to cache bust when new versions are available
-          filename: "[name].js",
+        // Output filenames should include content hashes in order to cache bust when new versions are available
+        filename: "[name].js",
 
-          path: params.outputPath,
-        },
+        path: params.outputPath,
+      },
 
-        plugins: [
-          ...plugins,
-          ...(appWebpackConfig.plugins ?? []),
-          new CopyPlugin({
-            patterns: [{ from: path.resolve(__dirname, "..", "public") }],
-          }),
-          new HtmlWebpackPlugin({
-            templateContent: ({ htmlWebpackPlugin }) => `
+      plugins: [
+        ...plugins,
+        ...(appWebpackConfig.plugins ?? []),
+        new CopyPlugin({
+          patterns: [{ from: path.resolve(__dirname, "..", "public") }],
+        }),
+        new HtmlWebpackPlugin({
+          templateContent: ({ htmlWebpackPlugin }) => `
   <!doctype html>
   <html>
     <head>
@@ -147,16 +147,16 @@ export const mainConfig =
     </body>
   </html>
   `,
-            foxgloveExtraHeadTags: `
+          foxgloveExtraHeadTags: `
             <title>Foxglove Studio</title>
             <link rel="apple-touch-icon" sizes="180x180" href="apple-touch-icon.png" />
             <link rel="icon" type="image/png" sizes="32x32" href="favicon-32x32.png" />
             <link rel="icon" type="image/png" sizes="16x16" href="favicon-16x16.png" />
           `,
-            ...params.indexHtmlOptions,
-          }),
-        ],
-      };
-
-      return config;
+          ...params.indexHtmlOptions,
+        }),
+      ],
     };
+
+    return config;
+  };

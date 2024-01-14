@@ -2,7 +2,16 @@
 // License, v2.0. If a copy of the MPL was not distributed with this
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
-import { Button, CircularProgress, Link, List, ListItem, ListItemButton, SvgIcon, Typography } from "@mui/material";
+import {
+  Button,
+  CircularProgress,
+  Link,
+  List,
+  ListItem,
+  ListItemButton,
+  SvgIcon,
+  Typography,
+} from "@mui/material";
 import { ReactNode, useCallback, useLayoutEffect, useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import tinycolor from "tinycolor2";
@@ -23,7 +32,7 @@ type ArenaIntance = {
   port: string;
   startedAt: string;
   secure: boolean;
-}
+};
 
 const useStyles = makeStyles()((theme) => ({
   logo: {
@@ -182,31 +191,36 @@ function SidebarItems(): JSX.Element {
       hostOrigin = window.location.ancestorOrigins[0] as string;
     }
     return hostOrigin;
-  }
+  };
 
-  const importRobotAndConnect = useCallback((instance: ArenaIntance) => {
-    if (loadingInstance) {
-      return;
-    }
-    setLoadingInstance(btoa(instance.name));
-    const robot = instance.robot.replace(/[^a-zA-Z0-9]/g, "");
-    layoutActions.importFromURL(`${getHostOrigin()}/foxglove-assets/robot/${robot}/layout.json`, () => {
-      const foxgloveWebSocketSource = availableSources.find((source) => source.type === "connection" && source.id === "foxglove-websocket");
-      if (!foxgloveWebSocketSource) {
+  const importRobotAndConnect = useCallback(
+    (instance: ArenaIntance) => {
+      if (loadingInstance) {
         return;
       }
-      selectSource(foxgloveWebSocketSource.id,
-        {
-          type: "connection",
-          params: {
-            url: (instance.secure ? "wss://" : "ws://") + instance.hostname + ":" + instance.port,
-          },
-        }
+      setLoadingInstance(btoa(instance.name));
+      const robot = instance.robot.replace(/[^a-zA-Z0-9]/g, "");
+      layoutActions.importFromURL(
+        `${getHostOrigin()}/foxglove-assets/robot/${robot}/layout.json`,
+        () => {
+          const foxgloveWebSocketSource = availableSources.find(
+            (source) => source.type === "connection" && source.id === "foxglove-websocket",
+          );
+          if (!foxgloveWebSocketSource) {
+            return;
+          }
+          selectSource(foxgloveWebSocketSource.id, {
+            type: "connection",
+            params: {
+              url: (instance.secure ? "wss://" : "ws://") + instance.hostname + ":" + instance.port,
+            },
+          });
+          setLoadingInstance(undefined);
+        },
       );
-      setLoadingInstance(undefined);
-    });
-  }, [setLoadingInstance, loadingInstance]);
-
+    },
+    [setLoadingInstance, loadingInstance],
+  );
 
   useLayoutEffect(() => {
     fetch(`${getHostOrigin()}/foxglove-assets/running.json`, {
@@ -226,31 +240,48 @@ function SidebarItems(): JSX.Element {
       id: "newArena",
       title: "Arena Running Instances",
       actions: (
-        <List sx={{
-          maxHeight: 400,
-          overflowY: 'auto',
-        }}>
-          {arenaRunningInstances.length > 0 && arenaRunningInstances.map((instance) => (
-            <DataSourceOption
-              key={btoa(instance.name)}
-              text={instance.name + " — Robot: " + instance.robot}
-              secondaryText={"URL: " + (instance.secure ? "wss://" : "ws://") + instance.hostname + ":" + instance.port + " | Started at: " + new Date(instance.startedAt).toLocaleString("de-DE", { year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: "2-digit" })}
-              icon={loadingInstance == btoa(instance.name) ? (
-                <CircularProgress
-                  size={32}
-                  color="primary"
-                  variant="indeterminate"
-                />) : (
-                <SvgIcon fontSize="large" color="primary" viewBox="0 0 2048 2048">
-                  <path d="M1408 256h640v640h-640V640h-120l-449 896H640v256H0v-640h640v256h120l449-896h199V256zM512 1664v-384H128v384h384zm1408-896V384h-384v384h384z" />
-                </SvgIcon>
-              )}
-              onClick={() => {
-                importRobotAndConnect(instance);
-              }}
-              target="_blank"
-            />
-          ))}
+        <List
+          sx={{
+            maxHeight: 400,
+            overflowY: "auto",
+          }}
+        >
+          {arenaRunningInstances.length > 0 &&
+            arenaRunningInstances.map((instance) => (
+              <DataSourceOption
+                key={btoa(instance.name)}
+                text={instance.name + " — Robot: " + instance.robot}
+                secondaryText={
+                  "URL: " +
+                  (instance.secure ? "wss://" : "ws://") +
+                  instance.hostname +
+                  ":" +
+                  instance.port +
+                  " | Started at: " +
+                  new Date(instance.startedAt).toLocaleString("de-DE", {
+                    year: "numeric",
+                    month: "2-digit",
+                    day: "2-digit",
+                    hour: "2-digit",
+                    minute: "2-digit",
+                    second: "2-digit",
+                  })
+                }
+                icon={
+                  loadingInstance == btoa(instance.name) ? (
+                    <CircularProgress size={32} color="primary" variant="indeterminate" />
+                  ) : (
+                    <SvgIcon fontSize="large" color="primary" viewBox="0 0 2048 2048">
+                      <path d="M1408 256h640v640h-640V640h-120l-449 896H640v256H0v-640h640v256h120l449-896h199V256zM512 1664v-384H128v384h384zm1408-896V384h-384v384h384z" />
+                    </SvgIcon>
+                  )
+                }
+                onClick={() => {
+                  importRobotAndConnect(instance);
+                }}
+                target="_blank"
+              />
+            ))}
         </List>
       ),
     };
@@ -381,7 +412,13 @@ export default function Start(): JSX.Element {
       <div className={classes.spacer} />
       <Stack gap={4} className={classes.sidebar}>
         <SidebarItems key={sidebarItemsKey} />
-        <Button variant="text" color="primary" onClick={() => { setSidebarItemsKey(sidebarItemsKey + 1); }}>
+        <Button
+          variant="text"
+          color="primary"
+          onClick={() => {
+            setSidebarItemsKey(sidebarItemsKey + 1);
+          }}
+        >
           Refresh
         </Button>
       </Stack>

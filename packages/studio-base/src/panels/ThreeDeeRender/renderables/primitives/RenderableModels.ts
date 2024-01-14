@@ -3,7 +3,7 @@
 // file, You can obtain one at http://mozilla.org/MPL/2.0/
 
 import * as THREE from "three";
-import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils';
+import * as SkeletonUtils from "three/examples/jsm/utils/SkeletonUtils";
 
 import { crc32 } from "@foxglove/crc";
 import { toNanoSec } from "@foxglove/rostime";
@@ -198,7 +198,7 @@ export class RenderableModels extends RenderablePrimitive {
             renderable = await this.#createRenderable(
               primitive,
               (model) => model.url,
-              (_url) => { },
+              (_url) => {},
             );
           } catch (err) {
             this.renderer.settings.errors.add(
@@ -334,8 +334,8 @@ export class RenderableModels extends RenderablePrimitive {
     const overrideColor = this.userData.settings.color
       ? stringToRgba(tempRgba, this.userData.settings.color)
       : primitive.override_color
-        ? primitive.color
-        : undefined;
+      ? primitive.color
+      : undefined;
     if (overrideColor) {
       if (!renderable.material) {
         renderable.material = new THREE.MeshStandardMaterial({
@@ -396,7 +396,10 @@ export class RenderableModels extends RenderablePrimitive {
 
     const animation = primitive.animation;
     const mixer = new THREE.AnimationMixer(renderable.model);
-    const clip = THREE.AnimationClip.findByName(renderable.cachedModel.userData.animationClips, animation.name);
+    const clip = THREE.AnimationClip.findByName(
+      renderable.cachedModel.userData.animationClips,
+      animation.name,
+    );
     if (clip) {
       const action = mixer.clipAction(clip);
       action.setLoop(animation.loop ? THREE.LoopRepeat : THREE.LoopOnce, Infinity);

@@ -8,7 +8,7 @@ import { ConfigParams, devServerConfig, mainConfig } from "@foxglove/studio-web/
 
 import packageJson from "../package.json";
 
-const  FRONTEND_ASSETS_DIR = process.env.FRONTEND_ASSETS_DIR!;
+const FRONTEND_ASSETS_DIR = process.env.FRONTEND_ASSETS_DIR!;
 
 const params: ConfigParams = {
   outputPath: path.resolve(FRONTEND_ASSETS_DIR, "foxglove"),
