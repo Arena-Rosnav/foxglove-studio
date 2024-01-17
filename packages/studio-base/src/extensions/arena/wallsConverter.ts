@@ -29,8 +29,8 @@ export default function arenaPedSimWalls(): RegisterMessageConverterArgs<SceneUp
 
       for (const wall of inputMessage.walls) {
         // assuming always vertical walls
-        const sizeX = Math.abs(wall.end.x - wall.start.x) || 0.1;
-        const sizeY = Math.abs(wall.end.y - wall.start.y) || 0.1;
+        const sizeX = Math.abs(wall.end.x - wall.start.x) || 0.03;
+        const sizeY = Math.abs(wall.end.y - wall.start.y) || 0.03;
         // height
         const sizeZ = 3.0;
 

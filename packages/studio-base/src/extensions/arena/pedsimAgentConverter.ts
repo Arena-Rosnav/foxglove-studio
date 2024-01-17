@@ -93,7 +93,7 @@ export default function arenaPedsimAgents(): RegisterMessageConverterArgs<ArenaS
           animation: {
             name: "Take 001",
             loop: true,
-            speed: agentState.social_state.toLocaleLowerCase() === "running" ? 0.9 : 0.5,
+            speed: agentState.social_state.toLocaleLowerCase() === "running" ? 1.0 : 0.7,
           },
         };
 
