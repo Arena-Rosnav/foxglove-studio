@@ -28,6 +28,9 @@ export default function arenaPedSimWalls(): RegisterMessageConverterArgs<SceneUp
       let cubes: CubePrimitive[] = [];
 
       for (const wall of inputMessage.walls) {
+      
+      if (wall.layer !== 1) continue;
+
         // assuming always vertical walls
         const sizeX = Math.abs(wall.end.x - wall.start.x) || 0.03;
         const sizeY = Math.abs(wall.end.y - wall.start.y) || 0.03;
